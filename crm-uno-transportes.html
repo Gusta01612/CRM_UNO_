@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UNO Transportes | CRM Comercial</title>
+
+<!-- Tailwind CSS via CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Chart.js para os gráficos -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<!-- PapaParse para leitura de CSV -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- SheetJS para leitura de XLSX -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Ícones (Lucide) -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+<script>
+  // Paleta customizada: azul-marinho, ardósia e branco, alinhada ao pedido do cliente.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { 
+          navy:   { 900:'#0b1d3a', 800:'#112a52', 700:'#173863', 600:'#1f477a' },
+          accent: { DEFAULT:'#2f6fed', soft:'#e8f0ff' },
+          good:   '#1f9d55',
+          warn:   '#e0a52c',
+          bad:    '#d64545'
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif']
+        }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  /* Barra de rolagem discreta para as colunas do Kanban */
+  .kanban-col::-webkit-scrollbar { width: 6px; }
+  .kanban-col::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+  /* Efeito de destaque quando um card está sendo arrastado sobre uma coluna */
+  .drop-hover { background-color: #e8f0ff !important; border-color: #2f6fed !important; }
+
+  .card-drag { cursor: grab; }
+  .card-drag:active { cursor: grabbing; }
+
+  /* Transição suave da barra de progresso da meta */
+  #metaProgressBar { transition: width 0.6s ease; }
+
+  /* Zona de upload com estado ativo ao arrastar arquivo */
+  .dropzone-active { background-color: #e8f0ff !important; border-color: #2f6fed !important; }
+</style>
+</head>
+
+<body class="bg-slate-100 text-slate-800">
+
+<!-- ======================= CABEÇALHO ======================= -->
+<header class="bg-navy-900 text-white px-6 py-4 flex items-center justify-between shadow-md sticky top-0 z-30">
+  <div class="flex items-center gap-3">
+    <div class="w-9 h-9 rounded-lg bg-accent flex items-center justify-center font-extrabold text-sm">UNO</div>
+    <div>
+      <h1 class="font-bold text-lg leading-tight">CRM Comercial</h1>
+      <p class="text-xs text-slate-300 leading-tight">UNO Transportes — Cargas Rodoviárias &amp; Aéreas</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-4 text-sm">
+    <span class="hidden sm:inline text-slate-300" id="dataAtualHeader"></span>
+    <button id="btnResetDados" class="text-xs bg-navy-700 hover:bg-navy-600 px-3 py-1.5 rounded-md transition">
+      Restaurar dados de exemplo
+    </button>
+  </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto p-4 md:p-6 space-y-6">
+
+  <!-- ======================= 1. DASHBOARD DE METAS E ATIVIDADES ======================= -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    <!-- Card de Meta de Faturamento -->
+    <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold text-navy-900 text-base">Meta de Faturamento do Mês</h2>
+        <span id="metaPercentLabel" class="text-sm font-bold text-accent">0%</span>
+      </div>
+      <div class="flex items-end gap-2 mb-3">
+        <span id="metaValorAtual" class="text-3xl font-extrabold text-navy-900">R$ 0,00</span>
+        <span class="text-slate-400 text-sm mb-1">/ R$ 60.000,00</span>
+      </div>
+      <div class="w-full h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+        <div id="metaProgressBar" class="h-full bg-gradient-to-r from-accent to-navy-700 rounded-full" style="width:0%"></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-2">Atualizado automaticamente conforme leads são marcados como <strong>Ganho</strong>.</p>
+    </div>
+
+    <!-- Card de Atividades do Dia -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-navy-900 text-base mb-3">Atividades do Dia</h2>
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="bg-slate-50 rounded-lg p-2 border border-slate-100">
+          <p id="cntAbordados" class="text-2xl font-bold text-navy-800">0</p>
+          <p class="text-[11px] text-slate-500 leading-tight mt-1">Leads<br>Abordados</p>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-2 border border-slate-100">
+          <p id="cntCotacoes" class="text-2xl font-bold text-warn">0</p>
+          <p class="text-[11px] text-slate-500 leading-tight mt-1">Cotações<br>Pendentes</p>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-2 border border-slate-100">
+          <p id="cntFollowup" class="text-2xl font-bold text-bad">0</p>
+          <p class="text-[11px] text-slate-500 leading-tight mt-1">Follow-ups<br>Urgentes</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 2. INDICADORES GRÁFICOS ======================= -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h3 class="font-semibold text-navy-900 text-sm mb-3">Pipeline de Vendas (leads por etapa)</h3>
+      <canvas id="chartPipeline" height="220"></canvas>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h3 class="font-semibold text-navy-900 text-sm mb-3">Taxa de Conversão (Ganhos x Perdidos)</h3>
+      <canvas id="chartConversao" height="220"></canvas>
+      <p id="taxaConversaoLabel" class="text-center text-sm text-slate-500 mt-2"></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h3 class="font-semibold text-navy-900 text-sm mb-3">Motivos de Perda</h3>
+      <canvas id="chartMotivosPerda" height="220"></canvas>
+    </div>
+  </section>
+
+  <!-- ======================= 4. IMPORTAÇÃO DE PLANILHA ======================= -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h3 class="font-semibold text-navy-900 text-sm mb-3">Importar Leads (CSV ou Excel)</h3>
+    <div id="dropzone" class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center text-slate-500 text-sm cursor-pointer transition-colors hover:border-accent hover:bg-slate-50">
+      <p class="font-medium text-slate-600">Arraste um arquivo .csv, .xls ou .xlsx aqui</p>
+      <p class="text-xs mt-1">ou clique para selecionar — colunas reconhecidas: Nome da Empresa, Tipo de Carga, Rota, Telefone</p>
+      <input type="file" id="inputArquivo" accept=".csv,.xls,.xlsx" class="hidden">
+    </div>
+    <p id="importFeedback" class="text-xs mt-2"></p>
+  </section>
+
+  <!-- ======================= 3. FUNIL DE VENDAS (KANBAN) ======================= -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-navy-900 text-sm">Funil de Vendas</h3>
+      <button id="btnNovoLead" class="text-xs bg-navy-900 hover:bg-navy-700 text-white px-3 py-1.5 rounded-md transition">
+        + Novo Lead
+      </button>
+    </div>
+    <div id="kanbanBoard" class="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <!-- Colunas geradas via JavaScript -->
+    </div>
+  </section>
+
+</main>
+
+<!-- ======================= MODAL: NOVO / EDITAR LEAD ======================= -->
+<div id="modalLead" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-5">
+    <h3 class="font-semibold text-navy-900 mb-4" id="modalLeadTitulo">Novo Lead</h3>
+    <div class="space-y-3">
+      <input id="inputEmpresa" placeholder="Nome da Empresa" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      <input id="inputCarga" placeholder="Tipo de Carga (ex: Carga Seca, Refrigerada)" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      <input id="inputRota" placeholder="Rota / Região (ex: SP → RJ)" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      <input id="inputValor" type="number" placeholder="Valor Estimado (R$)" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      <input id="inputTelefone" placeholder="Telefone" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" id="inputUrgente" class="rounded border-slate-300">
+        Marcar como follow-up urgente
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="btnCancelarModal" class="text-sm px-4 py-2 rounded-md border border-slate-300 hover:bg-slate-50">Cancelar</button>
+      <button id="btnSalvarLead" class="text-sm px-4 py-2 rounded-md bg-accent text-white hover:bg-navy-700">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= MODAL: MOTIVO DE PERDA ======================= -->
+<div id="modalPerda" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-5">
+    <h3 class="font-semibold text-navy-900 mb-4">Motivo da Perda</h3>
+    <select id="selectMotivoPerda" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-5">
+      <option value="Preço Alto">Preço Alto</option>
+      <option value="Falta de Frota">Falta de Frota</option>
+      <option value="Fora da Rota">Fora da Rota</option>
+      <option value="Concorrência">Concorrência</option>
+      <option value="Sem Retorno do Cliente">Sem Retorno do Cliente</option>
+      <option value="Outro">Outro</option>
+    </select>
+    <div class="flex justify-end gap-2">
+      <button id="btnCancelarPerda" class="text-sm px-4 py-2 rounded-md border border-slate-300 hover:bg-slate-50">Cancelar</button>
+      <button id="btnConfirmarPerda" class="text-sm px-4 py-2 rounded-md bg-bad text-white hover:bg-red-700">Confirmar Perda</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   CRM UNO TRANSPORTES — LÓGICA PRINCIPAL
+   Persistência simulada via localStorage. Nenhum backend é necessário.
+   ========================================================================= */
+
+// ---- Definição das etapas do funil (ordem fixa) ----
+const ETAPAS = [
+  { id: 'novos',        titulo: 'Novos Leads' },
+  { id: 'qualificacao',  titulo: 'Em Qualificação' },
+  { id: 'cotacao',       titulo: 'Cotação Operacional' },
+  { id: 'proposta',      titulo: 'Proposta Enviada' },
+  { id: 'negociacao',    titulo: 'Negociação' }
+];
+
+const META_FATURAMENTO = 60000; // Meta fixa do mês, conforme solicitado
+const STORAGE_KEY = 'uno_crm_leads_v1';
+
+// ---- Dados fictícios de exemplo (carregados apenas se não houver nada salvo) ----
+function dadosExemplo() {
+  const hoje = new Date().toISOString().slice(0,10);
+  return [
+    { id: cryptoId(), empresa: 'Fribom Alimentos', carga: 'Carga Refrigerada', rota: 'SP → Curitiba', valor: 8200, telefone: '(11) 98221-3344', status: 'novos', urgente: false, dataAbordagem: hoje },
+    { id: cryptoId(), empresa: 'Metalúrgica Vetor', carga: 'Carga Seca / Paletizada', rota: 'Campinas → Salvador', valor: 15600, telefone: '(19) 99887-1122', status: 'novos', urgente: true, dataAbordagem: hoje },
+    { id: cryptoId(), empresa: 'Distribuidora Sertão', carga: 'Carga Fracionada', rota: 'SP → Recife', valor: 5400, telefone: '(81) 98765-4321', status: 'qualificacao', urgente: false, dataAbordagem: hoje },
+    { id: cryptoId(), empresa: 'TechParts Componentes', carga: 'Carga Expressa Aérea', rota: 'GRU → Manaus', valor: 22000, telefone: '(92) 99123-8877', status: 'cotacao', urgente: true, dataAbordagem: hoje },
+    { id: cryptoId(), empresa: 'Cerâmica Bela Vista', carga: 'Carga Seca', rota: 'Belo Horizonte → SP', valor: 9800, telefone: '(31) 98811-2233', status: 'cotacao', urgente: false, dataAbordagem: '2026-06-28' },
+    { id: cryptoId(), empresa: 'Química Norte Ltda', carga: 'Carga Perigosa (IMO)', rota: 'SP → Fortaleza', valor: 31000, telefone: '(85) 99001-2233', status: 'proposta', urgente: false, dataAbordagem: '2026-06-27' },
+    { id: cryptoId(), empresa: 'AutoPeças Silva', carga: 'Carga Fracionada', rota: 'SP → Porto Alegre', valor: 12500, telefone: '(51) 98456-7890', status: 'negociacao', urgente: true, dataAbordagem: hoje },
+    { id: cryptoId(), empresa: 'Grupo Vitalle Cosméticos', carga: 'Carga Expressa', rota: 'SP → Rio de Janeiro', valor: 18000, telefone: '(21) 99765-4321', status: 'negociacao', urgente: false, dataAbordagem: '2026-06-30' },
+    { id: cryptoId(), empresa: 'AgroSul Insumos', carga: 'Carga a Granel', rota: 'Cascavel → Santos', valor: 27500, telefone: '(45) 99988-7766', status: 'ganho', urgente: false, dataAbordagem: '2026-06-15' },
+    { id: cryptoId(), empresa: 'Móveis Planejare', carga: 'Carga Seca', rota: 'SP → Goiânia', valor: 14000, telefone: '(62) 98123-4455', status: 'ganho', urgente: false, dataAbordagem: '2026-06-20' },
+    { id: cryptoId(), empresa: 'Papelaria Central', carga: 'Carga Fracionada', rota: 'SP → Belém', valor: 9600, telefone: '(91) 99887-6655', status: 'perdido', motivoPerda: 'Preço Alto', urgente: false, dataAbordagem: '2026-06-10' },
+    { id: cryptoId(), empresa: 'Construtora Horizonte', carga: 'Carga Especial (Fora de Padrão)', rota: 'SP → Brasília', valor: 41000, telefone: '(61) 99234-1122', status: 'perdido', motivoPerda: 'Falta de Frota', urgente: false, dataAbordagem: '2026-06-05' },
+    { id: cryptoId(), empresa: 'Livraria Nova Era', carga: 'Carga Fracionada', rota: 'SP → Cuiabá', valor: 6200, telefone: '(65) 99321-4433', status: 'perdido', motivoPerda: 'Fora da Rota', urgente: false, dataAbordagem: '2026-06-08' },
+  ];
+}
+
+function cryptoId() {
+  return 'lead_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+// ---- Estado em memória, sincronizado com localStorage ----
+let leads = [];
+
+function carregarLeads() {
+  const salvos = localStorage.getItem(STORAGE_KEY);
+  if (salvos) {
+    try { leads = JSON.parse(salvos); return; } catch(e) { /* segue para dados de exemplo */ }
+  }
+  leads = dadosExemplo();
+  salvarLeads();
+}
+
+function salvarLeads() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(leads));
+}
+
+// =========================================================================
+// RENDERIZAÇÃO DO KANBAN
+// =========================================================================
+function renderKanban() {
+  const board = document.getElementById('kanbanBoard');
+  board.innerHTML = '';
+
+  ETAPAS.forEach(etapa => {
+    const leadsDaEtapa = leads.filter(l => l.status === etapa.id);
+
+    const col = document.createElement('div');
+    col.className = 'flex flex-col bg-slate-50 rounded-lg border border-slate-200 min-h-[300px]';
+    col.dataset.etapa = etapa.id;
+
+    col.innerHTML = `
+      <div class="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+        <span class="text-xs font-semibold text-navy-900 uppercase tracking-wide">${etapa.titulo}</span>
+        <span class="text-xs bg-white border border-slate-300 rounded-full px-2 py-0.5 text-slate-500">${leadsDaEtapa.length}</span>
+      </div>
+      <div class="kanban-col flex-1 p-2 space-y-2 overflow-y-auto max-h-[520px]"></div>
+    `;
+
+    const container = col.querySelector('.kanban-col');
+
+    // Eventos de drag-and-drop para mover cards entre colunas
+    container.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop-hover'); });
+    container.addEventListener('dragleave', () => col.classList.remove('drop-hover'));
+    container.addEventListener('drop', e => {
+      e.preventDefault();
+      col.classList.remove('drop-hover');
+      const leadId = e.dataTransfer.getData('text/plain');
+      moverLeadParaEtapa(leadId, etapa.id);
+    });
+
+    leadsDaEtapa.forEach(lead => container.appendChild(criarCardLead(lead, etapa.id)));
+    board.appendChild(col);
+  });
+}
+
+function criarCardLead(lead, etapaAtualId) {
+  const idxEtapa = ETAPAS.findIndex(e => e.id === etapaAtualId);
+  const proximaEtapa = ETAPAS[idxEtapa + 1];
+
+  const card = document.createElement('div');
+  card.className = 'card-drag bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:shadow-md transition';
+  card.draggable = true;
+  card.dataset.id = lead.id;
+
+  card.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', lead.id);
+  });
+
+  const valorFormatado = lead.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  card.innerHTML = `
+    <div class="flex items-start justify-between gap-2">
+      <p class="font-semibold text-sm text-navy-900 leading-tight">${escapeHtml(lead.empresa)}</p>
+      ${lead.urgente ? '<span class="shrink-0 text-[10px] bg-red-100 text-bad font-semibold px-1.5 py-0.5 rounded">URGENTE</span>' : ''}
+    </div>
+    <p class="text-xs text-slate-500 mt-1">${escapeHtml(lead.carga)}</p>
+    <p class="text-xs text-slate-500">${escapeHtml(lead.rota)}</p>
+    <p class="text-sm font-bold text-accent mt-1.5">${valorFormatado}</p>
+    <div class="flex gap-1.5 mt-2.5">
+      ${proximaEtapa ? `<button data-action="avancar" class="flex-1 text-[11px] bg-navy-900 hover:bg-navy-700 text-white rounded-md py-1.5 transition">Avançar →</button>` : ''}
+      <button data-action="ganho" class="flex-1 text-[11px] bg-good hover:bg-green-700 text-white rounded-md py-1.5 transition">Ganho</button>
+      <button data-action="perdido" class="flex-1 text-[11px] bg-bad hover:bg-red-700 text-white rounded-md py-1.5 transition">Perdido</button>
+    </div>
+  `;
+
+  card.querySelector('[data-action="avancar"]')?.addEventListener('click', () => {
+    moverLeadParaEtapa(lead.id, proximaEtapa.id);
+  });
+  card.querySelector('[data-action="ganho"]').addEventListener('click', () => {
+    marcarComoGanho(lead.id);
+  });
+  card.querySelector('[data-action="perdido"]').addEventListener('click', () => {
+    abrirModalPerda(lead.id);
+  });
+
+  return card;
+}
+
+function moverLeadParaEtapa(leadId, novaEtapaId) {
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return;
+  lead.status = novaEtapaId;
+  salvarLeads();
+  renderTudo();
+}
+
+function marcarComoGanho(leadId) {
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return;
+  lead.status = 'ganho';
+  salvarLeads();
+  renderTudo();
+}
+
+let leadIdParaPerda = null;
+function abrirModalPerda(leadId) {
+  leadIdParaPerda = leadId;
+  document.getElementById('modalPerda').classList.remove('hidden');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
+// =========================================================================
+// DASHBOARD: META DE FATURAMENTO E ATIVIDADES DO DIA
+// =========================================================================
+function renderDashboard() {
+  const ganhos = leads.filter(l => l.status === 'ganho');
+  const totalGanho = ganhos.reduce((soma, l) => soma + Number(l.valor || 0), 0);
+  const percentual = Math.min(100, (totalGanho / META_FATURAMENTO) * 100);
+
+  document.getElementById('metaValorAtual').textContent = totalGanho.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  document.getElementById('metaPercentLabel').textContent = percentual.toFixed(0) + '%';
+  document.getElementById('metaProgressBar').style.width = percentual + '%';
+
+  const hoje = new Date().toISOString().slice(0,10);
+  const abordadosHoje = leads.filter(l => l.dataAbordagem === hoje).length;
+  const cotacoesPendentes = leads.filter(l => l.status === 'cotacao').length;
+  const followupsUrgentes = leads.filter(l => l.urgente && l.status !== 'ganho' && l.status !== 'perdido').length;
+
+  document.getElementById('cntAbordados').textContent = abordadosHoje;
+  document.getElementById('cntCotacoes').textContent = cotacoesPendentes;
+  document.getElementById('cntFollowup').textContent = followupsUrgentes;
+}
+
+// =========================================================================
+// GRÁFICOS (Chart.js)
+// =========================================================================
+let chartPipeline, chartConversao, chartMotivosPerda;
+
+function renderGraficos() {
+  const ctxPipeline = document.getElementById('chartPipeline');
+  const ctxConversao = document.getElementById('chartConversao');
+  const ctxMotivos = document.getElementById('chartMotivosPerda');
+
+  const contagemPorEtapa = ETAPAS.map(etapa => leads.filter(l => l.status === etapa.id).length);
+
+  const ganhos = leads.filter(l => l.status === 'ganho').length;
+  const perdidos = leads.filter(l => l.status === 'perdido').length;
+  const totalFechados = ganhos + perdidos;
+  const taxaConversao = totalFechados ? ((ganhos / totalFechados) * 100).toFixed(1) : '0.0';
+  document.getElementById('taxaConversaoLabel').textContent =
+    totalFechados ? `${taxaConversao}% de conversão (${ganhos} ganhos / ${perdidos} perdidos)` : 'Ainda não há leads fechados.';
+
+  // Contagem de motivos de perda
+  const motivos = {};
+  leads.filter(l => l.status === 'perdido').forEach(l => {
+    const m = l.motivoPerda || 'Não informado';
+    motivos[m] = (motivos[m] || 0) + 1;
+  });
+
+  // Destrói instâncias anteriores antes de redesenhar (evita sobreposição)
+  chartPipeline?.destroy();
+  chartConversao?.destroy();
+  chartMotivosPerda?.destroy();
+
+  chartPipeline = new Chart(ctxPipeline, {
+    type: 'bar',
+    data: {
+      labels: ETAPAS.map(e => e.titulo),
+      datasets: [{
+        data: contagemPorEtapa,
+        backgroundColor: '#2f6fed',
+        borderRadius: 6,
+        maxBarThickness: 40
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 10 } } },
+        y: { beginAtZero: true, ticks: { precision: 0 } }
+      }
+    }
+  });
+
+  chartConversao = new Chart(ctxConversao, {
+    type: 'doughnut',
+    data: {
+      labels: ['Ganhos', 'Perdidos'],
+      datasets: [{
+        data: [ganhos, perdidos],
+        backgroundColor: ['#1f9d55', '#d64545'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+      cutout: '65%'
+    }
+  });
+
+  const labelsMotivos = Object.keys(motivos);
+  chartMotivosPerda = new Chart(ctxMotivos, {
+    type: 'bar',
+    data: {
+      labels: labelsMotivos.length ? labelsMotivos : ['Sem perdas registradas'],
+      datasets: [{
+        data: labelsMotivos.length ? Object.values(motivos) : [0],
+        backgroundColor: '#e0a52c',
+        borderRadius: 6,
+        maxBarThickness: 36
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+}
+
+// =========================================================================
+// FUNÇÃO CENTRAL DE RE-RENDERIZAÇÃO
+// =========================================================================
+function renderTudo() {
+  renderDashboard();
+  renderKanban();
+  renderGraficos();
+}
+
+// =========================================================================
+// MODAL: NOVO LEAD
+// =========================================================================
+document.getElementById('btnNovoLead').addEventListener('click', () => {
+  document.getElementById('modalLeadTitulo').textContent = 'Novo Lead';
+  ['inputEmpresa','inputCarga','inputRota','inputValor','inputTelefone'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('inputUrgente').checked = false;
+  document.getElementById('modalLead').classList.remove('hidden');
+});
+
+document.getElementById('btnCancelarModal').addEventListener('click', () => {
+  document.getElementById('modalLead').classList.add('hidden');
+});
+
+document.getElementById('btnSalvarLead').addEventListener('click', () => {
+  const empresa = document.getElementById('inputEmpresa').value.trim();
+  if (!empresa) { alert('Informe o nome da empresa.'); return; }
+
+  const novoLead = {
+    id: cryptoId(),
+    empresa,
+    carga: document.getElementById('inputCarga').value.trim() || 'Não especificado',
+    rota: document.getElementById('inputRota').value.trim() || 'Não especificada',
+    valor: Number(document.getElementById('inputValor').value) || 0,
+    telefone: document.getElementById('inputTelefone').value.trim(),
+    status: 'novos',
+    urgente: document.getElementById('inputUrgente').checked,
+    dataAbordagem: new Date().toISOString().slice(0,10)
+  };
+
+  leads.unshift(novoLead);
+  salvarLeads();
+  renderTudo();
+  document.getElementById('modalLead').classList.add('hidden');
+});
+
+// =========================================================================
+// MODAL: MOTIVO DE PERDA
+// =========================================================================
+document.getElementById('btnCancelarPerda').addEventListener('click', () => {
+  document.getElementById('modalPerda').classList.add('hidden');
+  leadIdParaPerda = null;
+});
+
+document.getElementById('btnConfirmarPerda').addEventListener('click', () => {
+  if (!leadIdParaPerda) return;
+  const lead = leads.find(l => l.id === leadIdParaPerda);
+  if (lead) {
+    lead.status = 'perdido';
+    lead.motivoPerda = document.getElementById('selectMotivoPerda').value;
+    salvarLeads();
+  }
+  document.getElementById('modalPerda').classList.add('hidden');
+  leadIdParaPerda = null;
+  renderTudo();
+});
+
+// =========================================================================
+// RESTAURAR DADOS DE EXEMPLO
+// =========================================================================
+document.getElementById('btnResetDados').addEventListener('click', () => {
+  if (confirm('Isso substituirá todos os leads atuais pelos dados de exemplo. Continuar?')) {
+    leads = dadosExemplo();
+    salvarLeads();
+    renderTudo();
+  }
+});
+
+// =========================================================================
+// MÓDULO 4: IMPORTAÇÃO DE PLANILHA (CSV / XLS / XLSX)
+// =========================================================================
+const dropzone = document.getElementById('dropzone');
+const inputArquivo = document.getElementById('inputArquivo');
+const importFeedback = document.getElementById('importFeedback');
+
+dropzone.addEventListener('click', () => inputArquivo.click());
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dropzone-active'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dropzone-active'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dropzone-active');
+  if (e.dataTransfer.files.length) processarArquivoImportado(e.dataTransfer.files[0]);
+});
+
+inputArquivo.addEventListener('change', e => {
+  if (e.target.files.length) processarArquivoImportado(e.target.files[0]);
+});
+
+function processarArquivoImportado(arquivo) {
+  const nome = arquivo.name.toLowerCase();
+
+  if (nome.endsWith('.csv')) {
+    Papa.parse(arquivo, {
+      header: true,
+      skipEmptyLines: true,
+      complete: resultado => importarLinhas(resultado.data)
+    });
+  } else if (nome.endsWith('.xls') || nome.endsWith('.xlsx')) {
+    const leitor = new FileReader();
+    leitor.onload = e => {
+      const workbook = XLSX.read(e.target.result, { type: 'binary' });
+      const primeiraAba = workbook.Sheets[workbook.SheetNames[0]];
+      const linhas = XLSX.utils.sheet_to_json(primeiraAba, { defval: '' });
+      importarLinhas(linhas);
+    };
+    leitor.readAsBinaryString(arquivo);
+  } else {
+    importFeedback.textContent = 'Formato não suportado. Utilize .csv, .xls ou .xlsx.';
+    importFeedback.className = 'text-xs mt-2 text-bad';
+  }
+}
+
+// Mapeia nomes de colunas variados (com/sem acento, maiúsculas/minúsculas) para os campos do lead
+function acharColuna(linha, possiveisNomes) {
+  const chaves = Object.keys(linha);
+  for (const nome of possiveisNomes) {
+    const encontrada = chaves.find(k => k.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'') === nome);
+    if (encontrada) return linha[encontrada];
+  }
+  return '';
+}
+
+function importarLinhas(linhas) {
+  let importados = 0;
+  const hoje = new Date().toISOString().slice(0,10);
+
+  linhas.forEach(linha => {
+    const empresa = acharColuna(linha, ['nome da empresa', 'empresa', 'cliente', 'razao social']);
+    if (!empresa) return; // ignora linhas sem nome de empresa (provavelmente vazias/lixo)
+
+    const novoLead = {
+      id: cryptoId(),
+      empresa: String(empresa).trim(),
+      carga: String(acharColuna(linha, ['tipo de carga', 'carga', 'tipo carga']) || 'Não especificado').trim(),
+      rota: String(acharColuna(linha, ['rota', 'regiao', 'rota/regiao', 'trajeto']) || 'Não especificada').trim(),
+      valor: Number(acharColuna(linha, ['valor estimado', 'valor', 'valor (r$)'])) || 0,
+      telefone: String(acharColuna(linha, ['telefone', 'contato', 'celular']) || '').trim(),
+      status: 'novos', // Regra do sistema: toda importação entra em "Novos Leads"
+      urgente: false,
+      dataAbordagem: hoje
+    };
+    leads.push(novoLead);
+    importados++;
+  });
+
+  salvarLeads();
+  renderTudo();
+
+  importFeedback.textContent = importados > 0
+    ? `${importados} lead(s) importado(s) com sucesso para "Novos Leads".`
+    : 'Nenhum lead válido foi encontrado no arquivo. Verifique se a coluna "Nome da Empresa" está presente.';
+  importFeedback.className = 'text-xs mt-2 ' + (importados > 0 ? 'text-good' : 'text-bad');
+
+  inputArquivo.value = ''; // permite reimportar o mesmo arquivo se necessário
+}
+
+// =========================================================================
+// INICIALIZAÇÃO
+// =========================================================================
+document.getElementById('dataAtualHeader').textContent = new Date().toLocaleDateString('pt-BR', {
+  weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+});
+
+carregarLeads();
+renderTudo();
+</script>
+
+</body>
+</html>
